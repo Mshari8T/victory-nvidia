@@ -1950,7 +1950,11 @@ unsafe fn note(this: Ptr, cmd: impl FnOnce(&Recorder) -> Cmd) {
 unsafe extern "system" fn list_close(this: Ptr) -> HRESULT {
     // SAFETY: as above.
     unsafe {
+        let table = hook::table(this);
         let hr = own!(this, ID3D12GraphicsCommandList_Vtbl.Close)(this);
+        // A close sets the list's table pointer anew too (D3D12Core 1.620, the Agility SDK
+        // on Windows 10): without its shim the state read below was D3D12Core's own memory.
+        hook::again(this, table, list_table);
         if let Some((_, state)) = of(this) {
             let mut inner = lock(&state.inner);
             let bytes = std::mem::take(&mut inner.bytes);
