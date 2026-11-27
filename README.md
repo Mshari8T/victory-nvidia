@@ -9,10 +9,47 @@ stalls at scene cuts.
 > title. foxhound is not affiliated with or endorsed by the title's developer or publisher, nor by NVIDIA.
 > See [docs/asset-policy.md](docs/asset-policy.md).
 
-## Quick start, step by step
+## Quick start: the ready-made program
 
-No AI assistant is needed. You need about 30 minutes, 10 GB of free disk space for the build and caches, and
-your own copy of the title.
+No tools, no build, no AI assistant. You need your own copy of the title and about 10 minutes.
+
+1. Download `foxhound-windows-x64.zip` from the [latest release](https://github.com/readmet3xt-lab/foxhound/releases)
+   and unpack it anywhere. It holds `Foxhound.exe` (the launcher), `victory.exe` (the layer), a README and the
+   licence. Nothing of the title and nothing of NVIDIA's is in it.
+2. Start `Foxhound.exe`. Windows may warn about an unknown publisher (the programs are not signed): "More info",
+   then "Run anyway". The release notes give each file's SHA-256, and you can build both programs yourself
+   (below).
+3. The first start asks once for **the folder that holds your copy of the title** (the folder with its `.exe`;
+   the folder above it is found too) and puts a shortcut "Foxhound" on the desktop.
+4. Choose your settings and press **Play**:
+
+   | Setting | Choices |
+   |---|---|
+   | Resolution | 1080p class (Series S profile: lightest, no DLSS), 1440p (Series X profile, the tested one), 4K (Series X profile) |
+   | DLSS | Off, DLAA, Quality, Balanced, Performance (NVIDIA; needs the Streamline folder, see *Set up*) |
+   | Frame Generation | Off / On (RTX 40 or later, with DLSS) |
+   | Display | Fullscreen (borderless), borderless window, window with a title bar |
+   | VRAM limit | Auto (what Windows reports for your card), 6 to 24 GB |
+   | Texture loading | Auto, all detail loaded (12 GB or more), detail on demand (less VRAM, can blur) |
+   | Dark areas | how much of the indirect-light estimate is used (ray tracing is off) |
+   | Frame rate | 30 fps (the title's own), 40, 60 (see *What frame rate will I get?*) |
+   | Process priority, Log, further switches | as named |
+   | Layer build | Release, or Diagnostics if you built `victory-diag.exe` and put it beside the launcher: F2 then saves the frame being drawn for a bug hunt |
+
+5. Behind a loading screen the launcher translates the title's shaders (2 to 5 minutes, once per version of
+   foxhound) and compiles the pipelines earlier runs asked for (seconds; minutes after an update of foxhound or
+   of the graphics driver). Then the game starts.
+6. While playing, **F1** opens the settings. Each one says whether it takes effect "at once" or "after restart";
+   "Restart the game" and "Quit the game" are in the same menu.
+
+**The very first run is slow, once.** A scene shown for the first time on your PC compiles its pipelines while
+you play: for about a minute each the picture runs at a few frames a second and objects (faces too) are missing.
+Every pipeline is written down; from the second start on the launcher compiles them all on the loading screen.
+The list cannot be shipped: it is made from your copy of the title.
+
+### Build it yourself instead
+
+You need about 30 minutes and 10 GB of free disk space.
 
 1. **Install the tools** (once). In a PowerShell window:
 
@@ -24,71 +61,98 @@ your own copy of the title.
 
    Close the window and open a new one, so that `git` and `cargo` are found.
 
-2. **Get foxhound and build it** (10-15 minutes the first time):
+2. **Get foxhound and build the release folder** (10-15 minutes the first time):
 
    ```powershell
    git clone https://github.com/readmet3xt-lab/foxhound
    cd foxhound
-   cargo build --release --locked -p victory
-   ```
-
-3. **Tell it where your copy is.** Copy `victory.example.toml` to `victory.toml` and set `game_dir` to the folder
-   that holds `game_scarlett_master.exe`. Keep that folder outside the `foxhound` folder.
-
-4. **Optional, for DLSS:** set up NVIDIA Streamline (see *Set up* below). Without it the game runs with the
-   title's own upscaling.
-
-5. **Start:**
-
-   ```powershell
-   .\scripts\play-foxhound.ps1 -Exe 'D:\Games\MyDump\game_scarlett_master.exe'
+   .\scripts\build-launcher.ps1 -Package
    ```
 
    If PowerShell answers that running scripts is disabled, allow your own scripts once with
-   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` and start again.
+   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` and start again. The folder
+   `target\foxhound-windows-x64` is what the release's .zip holds: start `Foxhound.exe` in it.
 
-   The first start translates the title's shaders (2-4 minutes) before the game window opens. Later starts
-   compile the pipelines that earlier sessions asked for (seconds; minutes after a new build or a new GPU
-   driver). Do not close the window while it says so.
-
-There are no downloads of a ready-made program here, and there will be none that include anything of the title.
+Without the launcher: `cargo build --release --locked -p victory`, then `scripts\play-foxhound.ps1 -Exe <your
+copy's folder or .exe>` (see *Run*).
 
 ## Where it stands
 
 Tested on one PC: Windows 11, Ryzen 7 7800X3D, 32 GB RAM, **RTX 4070 SUPER 12 GB**, NVMe SSD; the Xbox Series
-build **v1.0.2.1** of the title, Series X profile, 2560x1440 output, DLSS Quality, no Frame Generation. Frame times
-are the layer's own count over one run from a new game to the first boat ride (7 minutes, 12,429 frames).
+build **v1.0.2.1** of the title, Series X profile, 2560x1440 output, DLSS Quality, no Frame Generation. The
+numbers are one scripted run each from the menu to the first boat ride (6 minutes), the window's frame time
+read once a second, with every pipeline compiled before the run (a second start, not a first).
 
-| | Measured |
+| | Measured (2026-11-27) |
 |---|---|
-| First boat ride (gameplay) | 33.3 ms, 30 fps, steady (the title's own limit) |
-| Opening cutscenes | median 34 ms (33.7 ms in the latest run); 83% of all frames within 28-38 ms, 13% at 38-55 ms, 1% over 70 ms |
-| Worst places | the first 25 s after a new game starts (one freeze of 5 s, hitches of 0.5 s) and one crowded scene (about 50 ms a frame for 15 s) |
-| With `-FrameGen` | every frame the title renders is shown twice (2x presented) |
-| Memory | 20 GB of RAM in use (28 GB committed: keep the page file on), 11.9 GB of VRAM in use on the 12 GB card |
+| First boat ride, standing | 33.3 ms, 30 fps (the title's own limit) |
+| First boat ride, 60 s of driving | median 34.1 ms, mean 38.4 ms; 18 of 61 seconds at 40 ms or more, the worst 57 ms |
+| Opening cutscenes | median 33.5 ms, mean 36.9 ms; 42 of 256 seconds at 40 ms or more |
+| First 40 s of the opening | mean 48 ms (before this release: 171 ms, objects missing, on every start) |
+| Start of a scene | 20 to 40 s at 40-55 ms while it streams in (the first one: 42 ms mean over 40 s) |
+| Heavier scenes past the boat ride | one played session: four minutes at 16 to 21 fps with 8,000 draws a frame |
+| Memory | 19 GB of RAM in use (28 GB committed: keep the page file on), 11.9 GB of VRAM in use on the 12 GB card |
 
-Not tested yet: anything after the first boat ride. Combat, driving and the city load far more.
+DLSS mode against cutscene frame time (same run, before the last fix; gameplay is 33.3 ms in all three):
+
+| Mode | Mean | Seconds at 40 ms or more (of 256) |
+|---|---|---|
+| Quality | 36.8 ms | 61 |
+| Balanced | 36.5 ms | 39 |
+| Performance | 35.3 ms | 32 |
+
+**It is not a stable 30 fps yet.** Where the frame rate falls, the card is idle a third of the time: one thread
+of the layer (it prepares and submits every frame's work) is the limit, and in heavy scenes most of its time
+goes to copying the title's changed buffers (17 to 25 ms a frame at 8,000 draws). That is the work ahead; 60 fps
+needs the same thread at half of what it costs in the lightest gameplay today (26 ms).
 
 What is known to be wrong:
 
 - **No ray tracing.** The title traces its indirect light, reflections and lamp shadows in its own compute
   shaders. They are off (`VICTORY_BVH_BUILDER=1` turns them on: about 3 fps and a broken picture today). An
-  estimate stands in for indirect light and for reflections on opaque surfaces and glass: rooms are lit, reflections are
-  blurry. Water reflects the sky only, not boats or islands.
+  estimate stands in for indirect light and for reflections on opaque surfaces and glass: rooms are lit,
+  reflections are blurry, dark places can be too dark (launcher: "Dark areas"). **Water reflects the sky only**,
+  not boats, islands or the underside of a bridge.
+- **First run:** every scene compiles its pipelines the first time it is shown on your PC: for about a minute the
+  picture runs at a few frames a second and objects, faces among them, are missing. Once per scene. After an
+  update of foxhound or of the graphics driver, or from a new folder, the driver compiles them all again on the
+  loading screen (16 minutes for 88,604 pipelines here; "Skip" starts the game without waiting).
+- **Start of a new game:** the picture stands still for 1 to 2 s at the first 3D picture (4 s before this
+  release), a few frames of another scene show after it, and the first shot is too dark for about 4 s.
+- **Reported, not reproduced here:** an all-white picture with only the HUD at 10 fps; lag and stuttering sound
+  after long play ("looks like a memory leak"); objects that show or vanish for an instant; pixelated faces in
+  some cutscenes; black patches on water around floating objects (first public build).
 - **Left out:** the heat-haze / in-scattering pass (it smears blocks of pixels, also on water) and the decal
   heap's defragmentation (5.6 ms of GPU a frame). `VICTORY_LEAVE_OUT` names them.
-- **Hitches** while the title streams a new scene in (see the table).
-- **Start of a new game:** the picture stands still for about 4 s at the first 3D frame (2,300 pipelines and
-  3,500 buffers are set up in it), a few frames of another scene show after it, and the first shot is too dark
-  for about 4 s.
-- **Clouds:** square blocks in some clouds (reported, not traced yet).
-- **Frame rate:** the title runs at 30 fps. `-Fps 60` lets frames start every 1/60 s, but the layer itself costs
-  about 33 ms a frame today, so it stays near 30. 60 fps is the goal.
+- **Frame rate:** see above. The launcher's 40 and 60 fps settings tell the title to run faster; the layer does
+  not reach them. DLSS Frame Generation shows twice the frames the title renders.
+- **Reported in play past the first boat ride:** water's surface texture too soft; flicker at the draw distance;
+  objects that load only when near (with under 3 GB of RAM free the layer throttles its texture prefetch: close
+  other programs).
+- Nothing past the first boat ride is tested by us. Frame-generation tools that work on the window from outside
+  (Lossless Scaling) see uneven frame times and look unstable.
 
-Fixed since the first public build (2026-11-27): dark rectangles on water beside boats, people and islands, and
-dark slabs on water along the horizon and where rocks, plants or hulls meet it, and single dark tiles that
-flickered along the horizon (three faults in how 64-lane compute programs are run on NVIDIA's 32-lane waves); bright sky-coloured reflections in the opening's dark rooms, also on glass and spectacles; shader
-stutter after "building the shaders" (the launcher now prepares them itself).
+Fixed since the first public build:
+
+- **Squares of clear sky in clouds** for a second or two after a cut: the cloud pass's sort of its tiles lost
+  about one tile in eleven (a group-wide wait stood in loops that each wave of the card takes on its own).
+- **Violet vegetation**: distant trees and shore plants were tinted violet (whole canopies in some reports). The
+  light estimate took violet leftovers of the title's probes for light; they are dropped now (Ahyildiz's fix,
+  after Belobug). Green again in the shots tested here; tell us where it still shows.
+- **The stand-still at the first 3D frame** is shorter: the 3,600 small buffers it asks for are made ahead.
+- Dark rectangles on water beside boats, people and islands; dark slabs along the horizon and where rocks,
+  plants or hulls meet the water; single dark tiles that flickered along the horizon (three faults in how
+  64-lane compute programs are run on NVIDIA's 32-lane waves).
+- Bright sky-coloured reflections in the opening's dark rooms, also on glass and spectacles.
+- Shader stutter after "building the shaders": the launcher prepares them itself, with the run's own switches.
+- **Slow scene starts on every run** (3 to 9 fps for the first 30 s of the opening, objects missing), also after
+  the loading screen had compiled everything: the driver stores a compiled pipeline under the order in which the
+  process made its static samplers, and that order differed from run to run, so the driver compiled the same
+  pipelines again each time. The samplers are now made in one fixed order in every process
+  (`VICTORY_SAMPLER_ORDER`). After this update the loading screen compiles every pipeline once more.
+- "Access is denied (os error 5)" when the title's folder was given in place of its executable.
+- Ported from other forks (see *Credits*): BC7 textures with rotation bits decoded right, raw buffer views kept
+  inside their buffers, descriptor slots given back to the right heap.
 
 ## Questions people asked
 
@@ -97,8 +161,9 @@ its own compute shaders, which this layer cannot run fast enough yet. An estimat
 for reflections on opaque surfaces and glass. Water reflects the sky only; it does not mirror boats or islands yet.
 
 **Is DLSS on?** With Streamline set up, DLSS Super Resolution (Quality) replaces the title's own upscaler by
-default. Frame Generation is off unless you pass `-FrameGen`. DLSS gets the title's own motion vectors and depth:
-the layer answers the title's FidelityFX upscaler call with DLSS.
+default; the launcher has the other modes (Balanced and Performance take load off the card: fewer slow seconds
+in cutscenes, see the table above). Frame Generation is off unless you turn it on. DLSS gets the title's own
+motion vectors and depth: the layer answers the title's FidelityFX upscaler call with DLSS.
 
 **I built the shaders and it still stutters at every new scene.** Two causes, both fixed in the launcher now.
 (1) A translation is only found again by a run with the same switches; the older instructions translated with
@@ -108,6 +173,11 @@ before the game starts. A scene you enter for the first time ever can still stut
 
 **It gets smoother after a few launches. Why?** That is (2) above: each session writes down the pipelines it
 needed, and the next start compiles them ahead.
+
+**Can it do 60 fps?** Not yet as rendered frames: the layer needs 26 ms a frame in the lightest gameplay. What
+works today is DLSS Frame Generation (launcher: on), which shows 60 from 30 rendered, with NVIDIA Reflex on. The
+launcher's 40 and 60 fps settings change what the title asks for; they help only where the layer is faster than
+33 ms.
 
 **The game looks like slow motion.** The title advances its world by a fixed step per frame and expects 30 frames
 a second. Below 30 fps everything, sound aside, runs slower than real time.
@@ -131,9 +201,21 @@ fast cores and a large cache matters more than the GPU. Reports from the first p
 
 **Does the game save?** Yes. Saves are in `%LOCALAPPDATA%\victory\data` and are kept between builds.
 
-**Is this safe to run?** Everything here is source code that you build yourself; there is no ready-made program
-to trust. The layer does not go online. It reads your copy of the title, writes its caches, logs and saves under
-`%LOCALAPPDATA%\victory`, and nothing else.
+**Is this safe to run?** The release's two programs are built from this source by `scripts\build-launcher.ps1
+-Package`; the release notes give their SHA-256, and you can build them yourself and compare what they do. They
+are not signed, so Windows SmartScreen warns once. Neither goes online. They read your copy of the title and
+write caches, logs and saves under `%LOCALAPPDATA%\victory` and settings and logs under
+`%LOCALAPPDATA%\foxhound`; the launcher also makes one desktop shortcut. Nothing else.
+
+**"Error: reading ...: Access is denied. (os error 5)".** `victory run` was given a folder where it wanted the
+title's `.exe` (Windows answers a read of a folder that way). Since 2026-11-27 a folder is accepted and the
+executable in it is used; the launcher asks for the folder only.
+
+**I get 10 to 15 fps on a card like yours.** Three things to check. (1) The first run compiles pipelines while
+you play (see *Quick start*): judge the second run. (2) The switch set matters: started with plain `victory run`
+or another fork's script, most of what makes this fork fast is off. The launcher sets all of it. (3) Under 32 GB
+of RAM or under 12 GB of VRAM the Series X profile swaps: choose "1080p class". If it is still slow, open an
+issue with the newest file of `%LOCALAPPDATA%\foxhound\logs` (launcher: "Logs").
 
 **Where do I get the title?** From your own console and your own purchase. No game files are here, none are
 linked, and requests for them are closed without an answer.
@@ -190,6 +272,10 @@ The diagnostics build (frame timelines, captures, GPU timing) is optional:
 
 ## Run
 
+`Foxhound.exe` (see *Quick start*) is the way meant for playing. `Foxhound.exe --play` starts at once with the
+saved settings; `--game <folder>` sets the game folder. The script below does the same from PowerShell, for
+development:
+
 ```powershell
 .\scripts\play-foxhound.ps1 -Exe 'D:\Games\MyDump\game_scarlett_master.exe'
 ```
@@ -237,6 +323,14 @@ Every `VICTORY_...` switch is described in a comment where the code reads it. Th
 | `VICTORY_LOOPS_WAVE` | `1` (in the code) | compute programs that depend on the GPU's waves keep each wave together through their loops (`2`: every compute program, `0`: off); fixes water tiles dropped on NVIDIA |
 | `VICTORY_LDS_FIRST_INIT` | on (in the code) | a thread group's first thread always sets up its shared memory (`0`: only if its lane runs, as the console); fixes dark water tiles at edges |
 | `VICTORY_DSTORAGE_PRIORITY`, `VICTORY_DSTORAGE_WORKERS` | `-1`, all processors (in the code) | the threads that unpack streamed assets run below normal priority, so the frame's threads get the processors first (`0`: normal, as before) |
+| `VICTORY_PLACED_READS` | off | experimental: a fill of constants that reads what a buffer copy earlier in the same submission wrote is done on the card out of that copy's source, instead of waiting about 30 ms for the card. It takes 9 to 14 ms off every frame of the opening's boat cutscene (slow seconds 61 to 28 of 256), but in two of four runs one character's skin was drawn as coloured noise and dark blocks showed on water around boats. A guard for the cause found is in; it is not tested enough to be on |
+| `VICTORY_BUFFERS_AHEAD` | 4096 (in the code) | buffers of 64 KiB made by a background thread before the title asks for thousands of them in one frame (`0`: each made when asked for) |
+| `VICTORY_VRAM_BUDGET_MB` | launcher: "VRAM limit" | the most video memory the layer plans with (not given: what Windows reports) |
+| `VICTORY_LDS_BOUNDS` | on (in the code) | compute programs' reads outside their shared memory give 0 and writes are dropped, as on the console (`0`: as before) |
+| `VICTORY_RAW_VIEW_CLAMP` | on (in the code) | raw buffer views stay inside their buffer (from fxceless/victory-fork) |
+| `VICTORY_LDS_LOOP_ATOMICS` | on (in the code) | shared-memory atomics in loops do not wait for the whole thread group (`0`: they do, as before): the cloud tiles' sort keeps all its tiles |
+| `VICTORY_SAMPLER_ORDER` | on (in the code) | static samplers are given to the driver in one fixed order in every process (list in the cache folder), so its shader cache finds the title's pipelines again (`0`: in the order each run makes them, as before) |
+| `VICTORY_WIDE_THREADS` | three eighths of the logical processors, 2 to 8 | the threads that copy changed title buffers for a submission (it was a quarter, 2 to 6) |
 | `VICTORY_HELPER_PRIORITY` | `1` | the layer's threads that a frame waits for run above normal priority (`0`: normal) |
 | `VICTORY_PRELUDE_UPLOADS`, `VICTORY_SHOW_NEW_LATER`, `VICTORY_TABLED_REREAD` | on | texture upload order and slot changes (flicker, device losses) |
 | `VICTORY_SYNC_IN_PLACE`, `VICTORY_SPANS_QUICK`, `VICTORY_HEAP_SYNC_AT_SUBMIT` | on | cheaper descriptor-heap bookkeeping |
@@ -275,6 +369,10 @@ before it is in the projects named here, whose authors wrote most of this code.
 - **[Belobug/VIctory-Belobug-AMD](https://github.com/Belobug/VIctory-Belobug-AMD)**: the light estimate, renderer
   ports (constants heap in place, heap records), texture upload order, the frame rate switch; ported commits name
   their source.
+- Fixes taken as source patches, each read line by line: the BC7 rotation fix (fxceless), violet probe leftovers
+  dropped from the light estimate (Ahyildiz, after Belobug), raw buffer views kept inside their buffer
+  (lichenlang89, by way of CuteBooty/victory-8gb), dynamic descriptor slots given back only to their own heap
+  (fxceless/victory-fork#1324), statistics kept out of release builds (LucaruluDev).
 - **[FQY55kai/ZJOU-VICTORY](https://github.com/FQY55kai/ZJOU-VICTORY)**, **[myokex/victory-amd](https://github.com/myokex/victory-amd)**
   (with Spexivus, joroyt and tightfall), Joshua Odom, **Geckomacabre** and **cxy0072019-sketch**.
 - **[XCL](https://github.com/ivall/xcl)** (GPL-2.0-only) was read for how the same title behaves under another

@@ -842,6 +842,27 @@ pub(crate) fn made_host() -> Option<&'static Host> {
 
 /// The host GPU, created on first use; `None` without one (a run then
 /// behaves as before: nothing executes).
+/// The most of the card's memory taken as this process's budget, in bytes, whatever the system
+/// gives (`VICTORY_VRAM_BUDGET_MB=<n>`, 2048 at least; not given: the system's budget). The
+/// texture queue's line, the card copies of title buffers and what is kept for render targets
+/// are all sized from the budget, so a smaller one leaves the rest of the card to other
+/// programs, and keeps a card with little memory from being filled to the point where the
+/// system moves its memory into the PC's.
+fn vram_budget_cap() -> Option<u64> {
+    static CAP: OnceLock<Option<u64>> = OnceLock::new();
+    *CAP.get_or_init(|| {
+        let mb = std::env::var("VICTORY_VRAM_BUDGET_MB").ok()?.trim().parse::<u64>().ok()?;
+        let mb = mb.max(2048);
+        tracing::info!(mb, "the card's memory: no more than this is taken as the budget (VICTORY_VRAM_BUDGET_MB)");
+        Some(mb << 20)
+    })
+}
+
+/// The host if it has been made (never makes it).
+pub(crate) fn host_made() -> Option<&'static Host> {
+    HOST.get().and_then(|h| h.as_ref())
+}
+
 pub(crate) fn host() -> Option<&'static Host> {
     HOST.get_or_init(|| match create() {
         Ok(host) => Some(host),
@@ -919,6 +940,12 @@ fn create() -> windows::core::Result<Host> {
         // Before anything is made with it (`VICTORY_RECORD`).
         #[cfg(feature = "diagnostics")]
         crate::replay::record::from_env(&device);
+        // Before anything else has a static sampler (`pipeline::samplers`): the
+        // first thing made with the device, in the run as in the tools. Made
+        // after Streamline had the device (DLSS loaded, in the run only), the
+        // run drew a white-painted material black with the pipelines `victory
+        // warm` had compiled (launcher run rel4, 2026-11-27).
+        crate::pipeline::samplers::prime(&device);
         // `VICTORY_D3D12_BACKGROUND=0`: the runtime's background work (the
         // driver compiling shaders again on the "D3D Background Thread"s,
         // for minutes after pipelines were made or loaded) is switched off.
@@ -9633,6 +9660,7 @@ impl Meter {
                     per_frame(6) / 1e3
                 );
             }
+            let [raw_srv, raw_uav] = crate::descriptor::host::raw_view_counts();
             tracing::info!(
                 "{fps:.1} fps, {ms:.1} ms/frame ({cpu:.1} preparing: copies {copy_ms:.1} ms \
                  {copy_mb:.1} MB, textures {texture_ms:.1} ms {texture_mb:.1} MB; {gpu:.1} on the \
@@ -9641,7 +9669,8 @@ impl Meter {
                  {indirect:.0} indirect ({left_out:.0} of all these left out on purpose: \
                  ray-tracing passes without the structure builder); heap buffers {picked:.1} passes {picked_ms:.1} ms;                  texture slots written so far: {placed} placed, {objects} of objects; \
                  textures picked by index: {picked_textures} uploaded so far ({picked_mb} MB), \
-                 {picked_waiting} waiting, {picked_away} passed over unmapped; depth textures with                  unordered access: {du0} made, bound as depth {du1}x, cleared as depth {du2}x,                  unordered views refused {du3}x; buffer views left null as the host would refuse them: {refused}",
+                 {picked_waiting} waiting, {picked_away} passed over unmapped; depth textures with                  unordered access: {du0} made, bound as depth {du1}x, cleared as depth {du2}x,                  unordered views refused {du3}x; buffer views left null as the host would refuse them: {refused}; \
+                 raw view clamp (past end, shortened, sub-dword, unaligned) since start: SRV {raw_srv:?}, UAV {raw_uav:?}",
                 picked_textures = crate::draw::HEAP_TEXTURES.load(Ordering::Relaxed),
                 picked_mb = crate::draw::HEAP_TEXTURE_BYTES.load(Ordering::Relaxed) >> 20,
                 picked_waiting = crate::draw::HEAP_TEXTURES_WAITING.load(Ordering::Relaxed),
@@ -10199,7 +10228,9 @@ impl Host {
             );
             self.log_video_memory("right after that change");
         }
-        Some([own.Budget, own.CurrentUsage, shared.Budget, shared.CurrentUsage])
+        // (`VICTORY_VRAM_BUDGET_MB`: no more than that is taken as the budget)
+        let budget = vram_budget_cap().map_or(own.Budget, |cap| own.Budget.min(cap));
+        Some([budget, own.CurrentUsage, shared.Budget, shared.CurrentUsage])
     }
 
     /// Both of the system's memory groups for this process, in bytes: for
@@ -10249,6 +10280,17 @@ impl Host {
     /// memory that shaders write, which upload memory cannot be. Starts in
     /// the common state (buffers move out of it implicitly).
     pub(crate) fn shared_buffer(&self, size: u64) -> Option<(ID3D12Resource, *mut u8)> {
+        // (one made ahead, if it is of that size and one is in store: `crate::ahead`)
+        if size == crate::ahead::SIZE
+            && let Some(made) = crate::ahead::shared()
+        {
+            return Some(made);
+        }
+        self.shared_buffer_now(size)
+    }
+
+    /// [`Host::shared_buffer`], made now.
+    pub(crate) fn shared_buffer_now(&self, size: u64) -> Option<(ID3D12Resource, *mut u8)> {
         MADE[2].fetch_add(1, Ordering::Relaxed);
         MADE[3].fetch_add(size, Ordering::Relaxed);
         let heap = D3D12_HEAP_PROPERTIES {
