@@ -45,6 +45,8 @@ mod indirect;
 mod inplace;
 #[cfg(windows)]
 mod land;
+#[cfg(windows)]
+mod port_journal;
 pub mod list;
 pub mod object;
 #[cfg(windows)]
