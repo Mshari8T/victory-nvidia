@@ -2,7 +2,7 @@
 #   scripts\play.ps1 -Exe <path of your own copy's executable>
 # -Safe         without the newer, faster ways (the first thing to try when something is wrong)
 # -RayTracing   the title's own ray-traced indirect light: lit interiors, about a third slower
-# -SeriesS      the title sees a Series S: it draws at a lower resolution (a few ms faster)
+# -SeriesS      the title sees a Series S: it draws at a lower resolution (about 40% faster on a 5060 Ti)
 # -Stock        upstream's settings, without the NVIDIA profile below
 # -Build        target\diag (the default, the build all measurements are of) or target\release
 # -More         other settings: -More @{VICTORY_PANEL='1'}
@@ -27,14 +27,23 @@ if ($Safe) {
 } else {
     $settings.VICTORY_THIN = '1'; $settings.VICTORY_JOIN_PARTS = '8'; $settings.VICTORY_UPLOAD_AHEAD = '1'
 }
-# NVIDIA profile (victory-nvidia):
-# - VICTORY_FETCH_CHECK=1: fetched pieces are checked for the relay-copy race that leaves skinned
-#   heads black (seen on RTX 5060 under Windows, avatarmanz/VIctory-7900XTX#138).
-# - VICTORY_TITLE_PRIORITIES left unset: priorities as the title set them starved its streaming
-#   threads for seconds on 6-8 core CPUs.
+# NVIDIA profile (victory-nvidia). Measured on a Ryzen 5 5500 + RTX 5060 Ti 16 GB (PCIe 3.0 x8),
+# prologue cutscene (window shot), Series S: stock 6.5 fps -> 9.8 with the ports and card buffers
+# -> 10.6 with 4 list threads. Series X: 6.5 -> 7.4 (there the card is 99% busy).
+# - VICTORY_FETCH_CHECK=1: fetched pieces checked for the relay-copy race that can leave skinned
+#   heads black (avatarmanz/VIctory-7900XTX#138).
+# - VICTORY_TITLE_PRIORITIES left unset: the title's own priorities starved its streaming threads
+#   on 6-8 core CPUs (black heads until textures arrive).
+# - Renderer ports 6 and 7 (from avatarmanz/VIctory-7900XTX): the guards' shared lock and the heaps'
+#   records asked for at the title's submit.
+# - Small title buffers (128 KiB up, 1.5 GB in all) kept in card memory: fewer bus crossings.
+# - List-call threads: a third of the logical cores, at least 4 (8 fought the title on 6 cores).
 if (-not $Stock) {
     $settings.VICTORY_FETCH_CHECK = '1'
     $settings.Remove('VICTORY_TITLE_PRIORITIES')
+    $settings.VICTORY_PORT_JOURNAL = '1'; $settings.VICTORY_PORT_GUARD = '1'
+    $settings.VICTORY_CARD_BUFFERS_MIN_KB = '128'; $settings.VICTORY_CARD_BUFFERS_MB = '1536'
+    $settings.VICTORY_THIN_THREADS = [string][Math]::Max(4, [int]([Environment]::ProcessorCount / 3))
 }
 if ($RayTracing) { $settings.VICTORY_BVH_BUILDER = '1' }
 foreach ($k in $More.Keys) { $settings[$k] = $More[$k] }
