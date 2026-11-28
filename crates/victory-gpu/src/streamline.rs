@@ -1461,9 +1461,18 @@ pub(crate) fn present_begins(frame: u64, planes: Planes<'_>) -> Option<Presentin
         options.color_width = planes.size[0];
         options.color_height = planes.size[1];
         options.on_error_callback = Some(present_error);
+        if on {
+            options.num_frames_to_generate = frames_to_generate();
+        }
         // SAFETY: filled options for viewport 0, on the presenting thread.
-        let code = unsafe { set_options(&viewport, &options) };
-        tracing::info!(frame, on, code, result = abi::result_name(code), "DLSS Frame Generation switched");
+        let mut code = unsafe { set_options(&viewport, &options) };
+        if code != 0 && options.num_frames_to_generate > 1 {
+            tracing::warn!(asked = options.num_frames_to_generate, code, result = abi::result_name(code), "DLSS Multi Frame Generation refused: one generated frame a present instead");
+            options.num_frames_to_generate = 1;
+            // SAFETY: as above.
+            code = unsafe { set_options(&viewport, &options) };
+        }
+        tracing::info!(frame, on, generated = options.num_frames_to_generate, code, result = abi::result_name(code), "DLSS Frame Generation switched");
         if code == 0 {
             calls.framegen_on = on;
         }
@@ -1559,6 +1568,10 @@ pub(crate) fn present_ends(presenting: Option<Presenting>) {
         if code == 0 {
             FG_SHOWN.fetch_add(u64::from(state.num_frames_actually_presented), Relaxed);
             FG_SHOWN_ALL.fetch_add(u64::from(state.num_frames_actually_presented), Relaxed);
+            static MAX_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !MAX_LOGGED.swap(true, Relaxed) {
+                tracing::info!(max = state.num_frames_to_generate_max, asked = frames_to_generate(), "DLSS Frame Generation: generated frames a present this card allows");
+            }
             let before = FG_STATUS.swap(state.status, Relaxed);
             if state.status != before {
                 tracing::warn!(
@@ -1569,6 +1582,15 @@ pub(crate) fn present_ends(presenting: Option<Presenting>) {
         }
     }
     spent(T_AFTER, began);
+}
+
+/// `VICTORY_FRAMEGEN_FRAMES=2|3`: DLSS Multi Frame Generation (3x, 4x; RTX 50
+/// cards), that many generated frames a present. Unset or 1: 2x.
+fn frames_to_generate() -> u32 {
+    static N: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("VICTORY_FRAMEGEN_FRAMES").ok().and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(1).clamp(1, 3)
+    })
 }
 
 /// Our swap chain's buffers are about to be made again: frame generation is
