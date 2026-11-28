@@ -15,6 +15,7 @@ param(
     [switch]$NoPrepare,
     # A window without a frame that fills the monitor (VICTORY_DISPLAY=fullscreen).
     [switch]$Fullscreen,
+    [switch]$NoClockPatch,
     [ValidateSet(2, 3, 4)][int]$FrameGenX = 3
 )
 $env:VICTORY_STREAMLINE_DIR = $Streamline
@@ -32,5 +33,7 @@ $more = @{
     # DLSS Multi Frame Generation: 2 generated frames a drawn one (3x); -FrameGenX 2 for 2x, 4 for 4x.
     VICTORY_FRAMEGEN_FRAMES = "$($FrameGenX - 1)"
 }
+# The title's own clock: its steps stay at most 1/15 s, so below 15 fps its time runs slower than ours.
+if ($NoClockPatch) { $more.Remove('VICTORY_SIM_STEP_MAX_FPS') }
 if ($Fullscreen) { $more.VICTORY_DISPLAY = 'fullscreen' }
 & (Join-Path $PSScriptRoot 'play-foxhound.ps1') -Exe $Exe -SeriesS -Dlss quality -FrameGen:(-not $NoFrameGen) -PrepareOnly:$PrepareOnly -UsedOnly:$PrepareOnly -NoPrepare:$NoPrepare -More $more
