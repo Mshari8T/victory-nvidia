@@ -31,6 +31,8 @@ param(
     # Frames begin every 1/Fps s whatever the title asks (it asks 1/30); the frame time is the layer's limit.
     [ValidateRange(1, 1000)][int]$Fps = 0,
     [switch]$PrepareOnly,
+    # With -PrepareOnly: only the pipelines earlier runs drew with (`victory warm --used`), not every one ever made.
+    [switch]$UsedOnly,
     [switch]$NoPrepare,
     [hashtable]$More = @{}
 )
@@ -118,7 +120,8 @@ if (-not $NoPrepare) {
             if ($LASTEXITCODE -eq 0) { [IO.File]::WriteAllText($stampFile, $stamp) }
         }
         Write-Host 'Compiling the pipelines earlier runs asked for (seconds, or minutes after a new build or driver)...'
-        & $victory warm 2>&1 | ForEach-Object { $l = "$_"; if ($l -match '^\d+ of \d+') { Write-Host "  $l" } elseif ($l -notmatch '^\d{4}-\d\d-\d\dT') { $l } } | Select-Object -Last 2
+        $warmArgs = @('warm'); if ($UsedOnly) { $warmArgs += '--used' }
+        & $victory @warmArgs 2>&1 | ForEach-Object { $l = "$_"; if ($l -match '^\d+ of \d+') { Write-Host "  $l" } elseif ($l -notmatch '^\d{4}-\d\d-\d\dT') { $l } } | Select-Object -Last 2
     } finally { Pop-Location; Remove-Item Env:VICTORY_HOST_WAVE -ErrorAction SilentlyContinue }
 }
 if ($PrepareOnly) { return }
