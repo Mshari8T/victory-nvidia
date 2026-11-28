@@ -1,8 +1,8 @@
 # Starts the title with the settings measured best on a Ryzen 5 5500 + RTX 5060 Ti 16 GB, Windows 10 (2026-11-28):
-# Series S profile, DLSS Quality (1280x720 inside, 1920x1080 out), DLSS Frame Generation 2x, game time kept to the
-# clock below 15 fps, submissions not joined. In the prologue's first room: about 16.5 frames rendered and 33 shown a
-# second, game time 99 % of real time.
-#   .\scripts\play-5500.ps1 [-Exe <the title's .exe>] [-NoFrameGen] [-PrepareOnly]
+# Series S profile, DLSS Quality (1280x720 inside, 1920x1080 out), DLSS Multi Frame Generation 3x, submissions not
+# joined. In the prologue's first room: about 16.5 frames rendered a second.
+#   .\scripts\play-5500.ps1 [-Exe <the title's .exe>] [-NoPrepare] [-Fullscreen] [-FrameGenX 2|3|4] [-NoFrameGen]
+#                           [-ClockPatch] [-PrepareOnly]
 # Needs NVIDIA's Streamline files (-Streamline, or VICTORY_STREAMLINE_DIR), hardware-accelerated GPU scheduling on, and
 # on Windows 10 the Agility SDK's D3D12Core (-D3D12).
 param(
@@ -15,7 +15,9 @@ param(
     [switch]$NoPrepare,
     # A window without a frame that fills the monitor (VICTORY_DISPLAY=fullscreen).
     [switch]$Fullscreen,
-    [switch]$NoClockPatch,
+    # The title's steps up to 1/10 s, not 1/15 (VICTORY_SIM_STEP_MAX_FPS=10): game time keeps to the clock below
+    # 15 fps, but the prologue's cell at night never had its guard open the door with it. Off by default.
+    [switch]$ClockPatch,
     [ValidateSet(2, 3, 4)][int]$FrameGenX = 3
 )
 $env:VICTORY_STREAMLINE_DIR = $Streamline
@@ -24,7 +26,6 @@ $env:VICTORY_STREAMLINE_DIR = $Streamline
 # Not joined, none in four runs.
 $more = @{
     VICTORY_D3D12_DIR = $D3D12
-    VICTORY_SIM_STEP_MAX_FPS = '10'
     VICTORY_JOIN_PARTS = '1'
     # Spare scratch chunks kept through memory pressure (the pressed 128 MB, dropped every second): 15.8 fps, not 14.0.
     VICTORY_SPARE_SCRATCH_MB = '512'
@@ -33,7 +34,6 @@ $more = @{
     # DLSS Multi Frame Generation: 2 generated frames a drawn one (3x); -FrameGenX 2 for 2x, 4 for 4x.
     VICTORY_FRAMEGEN_FRAMES = "$($FrameGenX - 1)"
 }
-# The title's own clock: its steps stay at most 1/15 s, so below 15 fps its time runs slower than ours.
-if ($NoClockPatch) { $more.Remove('VICTORY_SIM_STEP_MAX_FPS') }
+if ($ClockPatch) { $more.VICTORY_SIM_STEP_MAX_FPS = '10' }
 if ($Fullscreen) { $more.VICTORY_DISPLAY = 'fullscreen' }
 & (Join-Path $PSScriptRoot 'play-foxhound.ps1') -Exe $Exe -SeriesS -Dlss quality -FrameGen:(-not $NoFrameGen) -PrepareOnly:$PrepareOnly -UsedOnly:$PrepareOnly -NoPrepare:$NoPrepare -More $more
