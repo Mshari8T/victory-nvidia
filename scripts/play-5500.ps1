@@ -10,7 +10,9 @@ param(
     [string]$Streamline = 'D:\victory-data\streamline\bin-x64',
     [string]$D3D12 = 'D:\victory-leafy\target\diag\D3D12',
     [switch]$NoFrameGen,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    # Skip translating shaders and compiling pipelines (they are done already): the game opens at once.
+    [switch]$NoPrepare
 )
 $env:VICTORY_STREAMLINE_DIR = $Streamline
 # Joined submissions (the launcher's 8) left a submission a frame or so waiting 40 to 60 ms for the card in some
@@ -25,4 +27,4 @@ $more = @{
     # Four threads translate lists, not eight: fewer beside the title's own on six cores (16.6 and 16.9 fps, 15.8-16.1 with 8).
     VICTORY_THIN_THREADS = '4'
 }
-& (Join-Path $PSScriptRoot 'play-foxhound.ps1') -Exe $Exe -SeriesS -Dlss quality -FrameGen:(-not $NoFrameGen) -PrepareOnly:$PrepareOnly -UsedOnly:$PrepareOnly -More $more
+& (Join-Path $PSScriptRoot 'play-foxhound.ps1') -Exe $Exe -SeriesS -Dlss quality -FrameGen:(-not $NoFrameGen) -PrepareOnly:$PrepareOnly -UsedOnly:$PrepareOnly -NoPrepare:$NoPrepare -More $more
