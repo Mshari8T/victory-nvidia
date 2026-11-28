@@ -336,6 +336,15 @@ pub fn run(
             None => println!("frame rate: our clock {ms} ms; the title's own rate (30) left as it is"),
         }
     }
+    // Game time below 15 frames a second (VICTORY_SIM_STEP_MAX_FPS, off
+    // without it): a frame may move it up to 1/10 or 1/12 s, not 1/15.
+    #[cfg(windows)]
+    if execute && let Some(fps) = victory_loader::frame_rate::asked_step_max_fps() {
+        let size = image.info().size_of_image as usize;
+        // SAFETY: the image stays mapped and nothing of it has run yet.
+        let done = unsafe { victory_loader::frame_rate::apply_step_bound(image.base(), size, fps) };
+        println!("game time: a frame's step at most 1/{fps} s ({done:?})");
+    }
     if !execute {
         println!("not executing (pass --execute to start the title)");
         return Ok(());

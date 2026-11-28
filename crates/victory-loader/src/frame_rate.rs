@@ -137,6 +137,94 @@ pub const SITES: [Site; 3] = [
     },
 ];
 
+/// The longest step of game time one frame may move, as a frame rate
+/// (`VICTORY_SIM_STEP_MAX_FPS=<10 | 12>`, off without it). +0x2226040 makes
+/// each timer's step of the real time since the last frame, at most 1/15 s
+/// (+0x6159ec0): below 15 frames a second game time falls behind the clock
+/// (at 13.4, 66.7 ms of game time a 74.6 ms frame: 89 % of real time). The
+/// load of that bound (`vmovss xmm3, [rip+..]` at +0x2226045) is made to
+/// read another constant of the image's own read-only data instead: 0.1
+/// (+0x5fc7020) or 1/12 (+0x615a234). Below that rate it falls behind again.
+/// `None` if unset or not one of those (said why).
+pub fn asked_step_max_fps() -> Option<u32> {
+    let spec = std::env::var("VICTORY_SIM_STEP_MAX_FPS").ok()?;
+    let fps = spec.trim().parse::<u32>().ok().filter(|fps| step_bound(*fps).is_some());
+    if fps.is_none() {
+        eprintln!("VIctory: VICTORY_SIM_STEP_MAX_FPS={spec}: expected 10 or 12");
+    }
+    fps
+}
+
+/// Where the image holds `1 / fps` as a float, for [`asked_step_max_fps`].
+pub fn step_bound(fps: u32) -> Option<usize> {
+    match fps {
+        10 => Some(0x5fc7020),
+        12 => Some(0x615a234),
+        _ => None,
+    }
+}
+
+/// The load of the 1/15 s bound (game_scarlett_master.exe 1.0.2.1).
+pub const STEP_LOAD: Site = Site {
+    at: 0x2226045,
+    kind: Kind::Load,
+    len: 8,
+    hash: "9082fef7daab6499dd4d8af5691386f329c40f24da2ab8a0d11c38273c58578f",
+};
+
+/// Makes the load at [`STEP_LOAD`] read `1 / fps` ([`step_bound`]): its
+/// bytes and the constant's value are checked first, and only its offset
+/// to the constant is written.
+///
+/// # Safety
+/// The image stays mapped and no thread runs its code yet.
+#[cfg(windows)]
+pub unsafe fn apply_step_bound(base: usize, size: usize, fps: u32) -> Patched {
+    use windows_sys::Win32::System::Diagnostics::Debug::FlushInstructionCache;
+    use windows_sys::Win32::System::Memory::{PAGE_EXECUTE_READWRITE, VirtualProtect};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let site = &STEP_LOAD;
+    let done = (|| {
+        let Some(bound) = step_bound(fps) else {
+            return Patched::Failed("no such bound");
+        };
+        if site.at + site.len > size || bound + 4 > size {
+            return Patched::Failed("outside the image");
+        }
+        let at = base + site.at;
+        // SAFETY: inside the mapped image (checked above).
+        let there = unsafe { std::slice::from_raw_parts(at as *const u8, site.len) };
+        if blake3::hash(there).to_hex().as_str() != site.hash {
+            return Patched::Differs;
+        }
+        // SAFETY: as above; the title's read-only data.
+        let value = unsafe { ((base + bound) as *const f32).read_unaligned() };
+        if (value - 1.0 / fps as f32).abs() > 1e-6 {
+            return Patched::Differs;
+        }
+        // The offset is from the end of the 8-byte instruction.
+        let offset = (bound as i64 - (site.at + site.len) as i64) as i32;
+        let mut old = 0;
+        // SAFETY: the offset's four bytes, made writable for this and put
+        // back; nothing runs them yet.
+        unsafe {
+            if VirtualProtect((at + 4) as *const _, 4, PAGE_EXECUTE_READWRITE, &mut old) == 0 {
+                return Patched::Failed("Windows would not make it writable");
+            }
+            std::ptr::copy_nonoverlapping(offset.to_le_bytes().as_ptr(), (at + 4) as *mut u8, 4);
+            VirtualProtect((at + 4) as *const _, 4, old, &mut old);
+            FlushInstructionCache(GetCurrentProcess(), at as *const _, site.len);
+        }
+        Patched::Done
+    })();
+    match done {
+        Patched::Done => tracing::info!(fps, "game time: a frame's step bound raised from 1/15 s to 1/{fps} s (VICTORY_SIM_STEP_MAX_FPS)"),
+        Patched::Differs => tracing::warn!("game time: not patched, the title's bytes there are not the ones expected (another build?)"),
+        Patched::Failed(why) => tracing::warn!(why, "game time: not patched"),
+    }
+    done
+}
+
 /// Title data worth seeing while it runs (`VICTORY_TIMER_LOG=1`): the frame
 /// time (+0x98f84ac) and the limiter's flag (+0x7453ec9).
 pub const FRAME_US: usize = 0x98f84ac;
@@ -222,6 +310,19 @@ pub unsafe fn apply(base: usize, size: usize, rate: u32, sites: &[Site]) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn step_bounds_are_the_images_own_constants() {
+        assert_eq!(step_bound(10), Some(0x5fc7020));
+        assert_eq!(step_bound(12), Some(0x615a234));
+        assert_eq!(step_bound(15), None);
+        // The bound's load reads the constant past its own end: an offset
+        // that fits in the instruction's 32 bits.
+        for fps in [10, 12] {
+            let offset = step_bound(fps).unwrap() as i64 - (STEP_LOAD.at + STEP_LOAD.len) as i64;
+            assert!(i32::try_from(offset).is_ok());
+        }
+    }
 
     #[test]
     fn intervals_and_rates() {
