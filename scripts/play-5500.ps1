@@ -12,7 +12,9 @@ param(
     [switch]$NoFrameGen,
     [switch]$PrepareOnly,
     # Skip translating shaders and compiling pipelines (they are done already): the game opens at once.
-    [switch]$NoPrepare
+    [switch]$NoPrepare,
+    # A window without a frame that fills the monitor (VICTORY_DISPLAY=fullscreen).
+    [switch]$Fullscreen
 )
 $env:VICTORY_STREAMLINE_DIR = $Streamline
 # Joined submissions (the launcher's 8) left a submission a frame or so waiting 40 to 60 ms for the card in some
@@ -27,4 +29,5 @@ $more = @{
     # Four threads translate lists, not eight: fewer beside the title's own on six cores (16.6 and 16.9 fps, 15.8-16.1 with 8).
     VICTORY_THIN_THREADS = '4'
 }
+if ($Fullscreen) { $more.VICTORY_DISPLAY = 'fullscreen' }
 & (Join-Path $PSScriptRoot 'play-foxhound.ps1') -Exe $Exe -SeriesS -Dlss quality -FrameGen:(-not $NoFrameGen) -PrepareOnly:$PrepareOnly -UsedOnly:$PrepareOnly -NoPrepare:$NoPrepare -More $more
