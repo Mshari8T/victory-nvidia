@@ -452,7 +452,9 @@ fn sweep() {
     #[cfg(feature = "diagnostics")]
     crate::book::check();
     crate::residency::refresh();
-    if crate::residency::pressured() {
+    // (With a limit asked for, what is kept stays: on a 32 GB PC that was
+    // pressed every second, and the lists made their chunks anew each time.)
+    if crate::residency::pressured() && spare_asked().is_none() {
         trim_spare_chunks();
     }
     crate::pool::room(host().and_then(|h| h.video_memory()));
@@ -2079,6 +2081,16 @@ impl<T> Spare<T> {
 /// Scratch chunks no list holds.
 static SPARE: Mutex<Spare<Chunk>> = Mutex::new(Spare::new());
 
+/// The most bytes of spare chunks kept, whatever the host's memory
+/// (`VICTORY_SPARE_SCRATCH_MB=<n>`; unset: [`SPARE_KEPT`], or [`SPARE_MOST`]
+/// when host memory is pressed). With 2.8 GB of 32 free the pressed 128 MB
+/// was the limit, and the list threads made upload buffers for a third of
+/// their working time (Ryzen 5 5500, 2026-11-28).
+fn spare_asked() -> Option<u64> {
+    static MB: OnceLock<Option<u64>> = OnceLock::new();
+    *MB.get_or_init(|| std::env::var("VICTORY_SPARE_SCRATCH_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).map(|mb| mb << 20))
+}
+
 /// A scratch chunk of `size` bytes: one kept ([`SPARE`]) or a new one.
 fn take_chunk(host: &Host, size: u64) -> Option<Chunk> {
     if scratch_pool()
@@ -2111,7 +2123,9 @@ fn give_chunks(chunks: Vec<(Chunk, u64)>) {
         let mut spare = SPARE.lock().unwrap_or_else(|e| e.into_inner());
         for (chunk, size) in chunks {
             let back = if scratch_pool() {
-                let limit = if keep_freed() && !crate::residency::limited_host_ram() {
+                let limit = if let Some(asked) = spare_asked() {
+                    asked
+                } else if keep_freed() && !crate::residency::limited_host_ram() {
                     SPARE_KEPT
                 } else {
                     SPARE_MOST
