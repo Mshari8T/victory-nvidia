@@ -21,6 +21,10 @@ use super::xasync::{E_INVALIDARG, E_NOTIMPL};
 use super::xgameruntime::{HRESULT, S_OK};
 use crate::{HleExport, HleModule};
 
+/// Pads XInput does not list (DualShock 4, DualSense, other HID pads), read over HID.
+#[cfg(windows)]
+mod hid;
+
 /// The documented errors.
 pub const DEVICE_DISCONNECTED: HRESULT = 0x838A_0001_u32 as i32;
 pub const DEVICE_NOT_FOUND: HRESULT = 0x838A_0002_u32 as i32;
@@ -1368,12 +1372,28 @@ mod host {
     #[derive(Default)]
     pub(super) struct Host {
         empty_until: [Option<Instant>; PADS],
+        /// Pads XInput does not list, and which of them sits in each slot
+        /// XInput leaves empty.
+        hid: super::hid::Pads,
+        hid_slots: [Option<u64>; PADS],
         /// The mouse's velocity (counts a second) and when it was last read.
         mouse: (f32, f32, Option<Instant>),
     }
 
-    impl Source for Host {
-        fn pad(&mut self, slot: usize) -> Option<PadState> {
+    impl Host {
+        /// The HID pad in this slot: the one it had while that one is still
+        /// connected, else the oldest one in no slot yet.
+        fn hid(&mut self, slot: usize) -> Option<PadState> {
+            let connected = self.hid.connected();
+            let kept = self.hid_slots[slot].filter(|id| connected.iter().any(|(c, _)| c == id));
+            let id = kept.or_else(|| {
+                connected.iter().map(|&(id, _)| id).find(|id| !self.hid_slots.contains(&Some(*id)))
+            });
+            self.hid_slots[slot] = id;
+            connected.into_iter().find(|&(c, _)| Some(c) == id).map(|(_, pad)| pad)
+        }
+
+        fn xinput(&mut self, slot: usize) -> Option<PadState> {
             if self.empty_until[slot].is_some_and(|until| Instant::now() < until) {
                 return None;
             }
@@ -1384,8 +1404,21 @@ mod host {
                 return None;
             }
             self.empty_until[slot] = None;
+            Some(convert(&state.Gamepad))
+        }
+    }
+
+    impl Source for Host {
+        fn pad(&mut self, slot: usize) -> Option<PadState> {
             #[allow(unused_mut)]
-            let mut pad = convert(&state.Gamepad);
+            let mut pad = match self.xinput(slot) {
+                // An XInput pad takes the slot; a HID pad there moves to a free one.
+                Some(pad) => {
+                    self.hid_slots[slot] = None;
+                    pad
+                }
+                None => self.hid(slot)?,
+            };
             // The scripted keys (`VICTORY_KEYS`) also press the first
             // pad's buttons, by the stand-in pad's table: with a real pad
             // connected the stand-in is not there, and a title that listens
@@ -1458,6 +1491,9 @@ mod host {
             };
             // SAFETY: a valid vibration; an empty slot just fails.
             unsafe { XInputSetState(slot as u32, &speeds) };
+            if let Some(id) = self.hid_slots[slot] {
+                self.hid.rumble(id, low, high);
+            }
         }
     }
 
